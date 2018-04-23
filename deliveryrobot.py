@@ -24,15 +24,15 @@ class DeliveryRobot:
 		self.cmap = None
 
 		self.particlefilter = None
-		self.classifier = None
+		self.imgClassifier = None
 
 	def run(robot: cozmo.robot.Robot):
 		#setup
 		self.grid = CozGrid("map_arena.json")
 		self.particlefilter = ParticleFilter(grid)
 		self.cmap = CozMap("gridwithbox.json", node_generator)
-		self.classifier = ImageClassifier()
-
+		self.imgClassifier = ImageClassifier()
+		self.imgClassifier.classifier = joblib.load('classifier.pk1')
 
 		state = "LOST"
 		#statemachine
@@ -252,7 +252,7 @@ class DeliveryRobot:
 			i += 1
 
 	def identifymarker(location):
-		clf = self.classifier
+		clf = self.imgClassifier
 		latest_image = self.robot.world.latest_image
 	    new_image = latest_image.raw_image
 	    new_image.save("./temp/temp_.bmp")
