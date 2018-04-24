@@ -1,8 +1,14 @@
-import cozmo
 import math
-import sys
-import time
 import random
+
+import cozmo
+import numpy as np
+from numpy.linalg import inv
+import threading
+import time
+import sys
+import asyncio
+from PIL import Image
 
 from cmap import *
 from rrt import *
@@ -26,36 +32,13 @@ class DeliveryRobot:
 		self.particlefilter = None
 		self.imgClassifier = None
 
-	def run(robot: cozmo.robot.Robot):
-		#setup
-		self.grid = CozGrid("map_arena.json")
-		self.particlefilter = ParticleFilter(grid)
-		self.cmap = CozMap("gridwithbox.json", node_generator)
-		self.imgClassifier = ImageClassifier()
-		self.imgClassifier.classifier = joblib.load('classifier.pk1')
-
-		state = "LOST"
-		#statemachine
-		while True:
-			if state == "LOST":
-				state = lost()
-			elif state = "GOTOHOME"
-				state = gotohome()
-			elif state == "SURVEY"
-				state = survey()
-			elif state == "SORTCUBES"
-				state = sortcubes()
-			elif state == "SUCCESS"
-				print("SUCCESS!")
-				return "GOTOHOME"
-			else:
-
-
 	#lost state
 	def lost():
+		print("LOST")
 		#localize
 		if(self.robotPos.confidence):
 			#robot has localized
+			print("localized")
 			return "GOTOHOME"
 		else:
 			#robot is not localized
@@ -226,8 +209,8 @@ class DeliveryRobot:
 		change_in_angle = goal_angle - current_angleu
 
 		#make robot turn that amount. probably with turn in place
-		await self.robot.turn_in_place(change_in_angle)
-		this.grid.updateEasy(self.robot)
+		action = self.robot.turn_in_place(degrees(change_in_angle)).wait_for_completed()
+		self.grid.updateEasy(self.robot)
 
 	def go_to_node(current_pos, goal_pos):
 		turn_to_face(current_pos, goal_pos)
@@ -235,8 +218,8 @@ class DeliveryRobot:
 		relative_y = goal_pos[1] - current_pos[1]
 		dist = math.sqrt((relative_x)**2 + (relative_y)**2)
 		#drive straight amount = dist
-		await self.robot.drive_straight(distance_inches(dist), speed_mmps(100)).wait_for_completed()
-		this.grid.updateEasy(self.robot)
+		action = self.robot.drive_straight(distance_inches(dist), speed_mmps(100)).wait_for_completed()
+		self.grid.updateEasy(self.robot)
 
 	def get_path_between(start_pos, goal_pos):
 		cmap.add_goal(goal_pos)
@@ -254,23 +237,48 @@ class DeliveryRobot:
 	def identifymarker(location):
 		clf = self.imgClassifier
 		latest_image = self.robot.world.latest_image
-	    new_image = latest_image.raw_image
-	    new_image.save("./temp/temp_.bmp")
-	    test_raw = []
-	    test_raw.append(io.imread('./temp/temp_.bmp'))
-	    test_data = clf.extract_image_features(test_raw)
-	    label = clf.predict_labels(test_data)
-	    label = str(label[0]).upper()
+		new_image = latest_image.raw_image
+		new_image.save("./temp/temp_.bmp")
+		test_raw = []
+		test_raw.append(io.imread('./temp/temp_.bmp'))
+		test_data = clf.extract_image_features(test_raw)
+		label = clf.predict_labels(test_data)
+		label = str(label[0]).upper()
 
-	    self.grid.add_identified_marker(label, location)
+		self.grid.add_identified_marker(label, location)
 
 	def detectcube():
-		update_cmap, goal_center  = await detect_cube_and_update_cmap(self.robot, {}, self.robotPos)
+		update_cmap, goal_center = detect_cube_and_update_cmap(self.robot, {}, self.robotPos)
 		if(update_cmap):
 			return True
 		else :
 			self.cmap.set_goal(self.robotPos)
 			return False
+
+async def run(robot: cozmo.robot.Robot):
+	#setup
+	self.grid = CozGrid("map_arena.json")
+	self.particlefilter = ParticleFilter(grid)
+	self.cmap = CozMap("gridwithbox.json", node_generator)
+	self.imgClassifier = ImageClassifier()
+	self.imgClassifier.classifer = joblib.load('classifier.pk1')
+
+	state = "LOST"
+	#statemachine
+	while True:
+		if state == "LOST":
+			state = lost()
+		elif state == "GOTOHOME":
+			state = gotohome()
+		elif state == "SURVEY":
+			state = survey()
+		elif state == "SORTCUBES":
+			state = sortcubes()
+		elif state == "SUCCESS":
+			print("SUCCESS!")
+			return "GOTOHOME"
+		else:
+			return "LOST"
 
 class CozmoThread(threading.Thread):
     
