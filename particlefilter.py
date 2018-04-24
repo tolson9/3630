@@ -35,22 +35,6 @@ class ParticleFilter:
         m_x, m_y, m_h, m_confident = compute_mean_pose(self.particles)
         return (m_x, m_y, m_h, m_confident)
 
-def updateEasy(robot, filt):
-    odom = compute_odometry(robot.pose)
-    # Obtain the camera intrinsics matrix
-    # fx, fy = robot.camera.config.focal_length.x_y
-    # cx, cy = robot.camera.config.center.x_y
-    # camera_settings = np.array([
-    #     [fx,  0, cx],
-    #     [ 0, fy, cy],
-    #     [ 0,  0,  1]
-    # ], dtype=np.float)
-
-    # markers, camera_image = await marker_processing(robot, camera_settings, show_diagnostic_image=False)
-
-    (m_x,m_y,m_h,confidence) = filt.update(odom, filt.grid.markers)
-    return (m_x, m_y, m_h, m_confident)
-
 # tmp cache
 last_pose = cozmo.util.Pose(0,0,0,angle_z=cozmo.util.Angle(degrees=0))
 flag_odom_init = False
@@ -135,6 +119,152 @@ def diff_heading_deg(heading1, heading2):
 
 def grid_distance(x1, y1, x2, y2):
     return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+
+def motion_update(particles, odom):
+    """ Particle filter motion update
+
+        Arguments:
+        particles -- input list of particle represents belief p(x_{t-1} | u_{t-1})
+                before motion update
+        odom -- odometry to move (dx, dy, dh) in *robot local frame*
+
+        Returns: the list of particles represents belief \tilde{p}(x_{t} | u_{t})
+                after motion update
+    """
+    motion_particles = []
+
+    for p in particles:
+        #motion_particles.append(Particle(x= add_gaussian_noise(p.x + odom[0], 0.2), y=add_gaussian_noise(p.y + odom[1], 2), heading = add_gaussian_noise(p.h + odom[2], 0.5)))
+        (x,y) = rotate_point(odom[0], odom[1], diff_heading_deg(p.h, odom[2]))
+        xVal = add_gaussian_noise(p.x + x,0.01)
+        yVal = add_gaussian_noise(p.y + y,0.01)
+        hVal = add_gaussian_noise(p.h + odom[2], 1)
+
+        motion_particles.append(Particle(x=xVal, y=yVal, heading=hVal))
+
+    return motion_particles
+
+# ------------------------------------------------------------------------
+def measurement_update(particles, measured_marker_list, grid):
+    """ Particle filter measurement update
+
+        Arguments:
+        particles -- input list of particle represents belief \tilde{p}(x_{t} | u_{t})
+                before meansurement update (but after motion update)
+
+        measured_marker_list -- robot detected marker list, each marker has format:
+                measured_marker_list[i] = (rx, ry, rh)
+                rx -- marker's relative X coordinate in robot's frame
+                ry -- marker's relative Y coordinate in robot's frame
+                rh -- marker's relative heading in robot's frame, in degree
+
+                * Note that the robot can only see markers which is in its camera field of view,
+                which is defined by ROBOT_CAMERA_FOV_DEG in setting.py
+                * Note that the robot can see mutliple markers at once, and may not see any one
+
+        grid -- grid world map, which contains the marker information,
+                see grid.py and CozGrid for definition
+                Can be used to evaluate particles
+
+        Returns: the list of particles represents belief p(x_{t} | u_{t})
+                after measurement update
+    """
+    if len(measured_marker_list) == 0:
+        #print("Cant see marker")
+        measured_particles = []
+        for p in particles :
+            if not grid.is_in(p.x, p.y) :
+                if p.x > 0 :
+                    p.x -= 0.25
+                else :
+                    p.x += 0.25
+                if p.y > 0 :
+                    p.y -= 0.25
+                else :
+                    p.y += 0.25
+
+
+                #(x,y) = grid.random_free_place()
+                #measured_particles.append(Particle(x,y,heading=None))
+                measured_particles.append(p)
+
+            else :
+                measured_particles.append(p)
+        return measured_particles
+    # Update Weights
+    probs =[]
+    for p in particles:
+        count = 0
+        probList = []
+        bigCounter = 0
+        littleCounter = len(measured_marker_list)
+        
+        for p_marker in p.read_markers(grid):
+            bigCounter += 1
+            for m_marker in measured_marker_list:
+                probList.append(getProb(p_marker, m_marker))
+        prob = 1
+        if not probList:
+                prob*= 0.1
+  
+        selectedProb = []
+
+        for i in range(0, min(bigCounter, littleCounter)) :
+            prob *= max(probList)
+            selectedProb.append(max(probList))
+            maxIndex = probList.index(max(probList))
+            remNums = math.floor(maxIndex/littleCounter)
+            if probList :
+                for j in range(0, littleCounter):
+                    if remNums + j < len(probList):
+                        probList.remove(probList[remNums + j])
+
+        prob *= 0.1**(abs(bigCounter - littleCounter))
+
+        #print("Selected Probs")
+        #print(selectedProb)
+        probs.append(prob)
+                #print(max(probList))
+
+    #Resample
+    #print(probs)
+    for i in range(0, PARTICLE_COUNT) :
+        if probs[i] < 0.05 :
+          probs[i] = 0
+
+    sum = np.sum(probs)
+    if sum == 0 :
+        return particles
+
+    normalized = np.array(probs)
+    normalized /= sum
+    serted = sorted(normalized, reverse=True);
+    #print(sum)
+
+    measured_particles = []
+
+    sampled = np.random.choice(particles, PARTICLE_COUNT, p = normalized)
+
+    for p in sampled:
+        if not grid.is_in(p.x, p.y) :
+            (x,y) = grid.random_free_place()
+            measured_particles.append(Particle(x=x,y=y, heading=None))
+        else :
+            measured_particles.append(p)
+
+    for i in range(math.floor(0.975*PARTICLE_COUNT), PARTICLE_COUNT):
+        (x,y) = grid.random_free_place()
+        measured_particles[i] = Particle(x=x,y=y, heading=None)
+
+    return measured_particles
+
+#-------------------------------------------------------------------------------
+def getProb(a, b) :
+    dist = grid_distance(a[0], a[1], b[0], b[1])
+    angle_dist = diff_heading_deg(a[2], b[2]);
+    #prob = math.exp(-0.5*((dist**2)/(.02**2) + (angle_dist**2)/(2**2)))
+    prob = math.exp(-0.25*((dist**2)/(2**2) + (angle_dist**2)/(10**2)))
+    return prob
 
 
 #setup for particle filter, move to delivery function or init
