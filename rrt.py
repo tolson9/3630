@@ -5,7 +5,6 @@ import time
 import random
 
 from cmap import *
-from gui import *
 from utils import *
 from cozmo.util import *
 
@@ -101,51 +100,6 @@ def RRT(cmap, start):
     else:
         print("Please try again :-(")
 
-async def CozmoPlanning(robot: cozmo.robot.Robot):
-    # Allows access to map and stopevent, which can be used to see if the GUI
-    # has been closed by checking stopevent.is_set()
-    global cmap, stopevent
-
-    ########################################################################
-    # TODO: please enter your code below.
-    # Description of function provided in instructions
-      # TODO: please enter your code below.
-    # Description of function provided in instructionss
-    print("here\n")
-    #await robot.drive_straight(distance_inches(10), speed_mmps(200)).wait_for_completed()
-    pos = (6, 10)
-    while(True):
-        cmap, goal = detect_cube_and_update_cmap(robot, {}, pos)
-        while(not goal):
-            #rotate until it finds goal
-            action = robot.turn_in_place(degrees(15)).wait_for_completed()
-            cmap, goal = detect_cube_and_update_cmap(robot, {}, pos)
-
-        #robot should have located goal
-        RRT(cmap, pos);
-        path = cmap.get_smooth_path()
-        numObstacles = len(cmap._obstacles)
-        nodeIndex = 0;
-        while(numObstacles == cmap._obstacles && nodeIndex < len(path) - 1):
-            cmap, goal = detect_cube_and_update_cmap(robot, {}, pos)
-            #go to next node
-            current_pos = path[i];
-            current_angle = (robot.pose)[2]
-            next_node = path[nodeIndex + 1]
-
-            next_angle = (next_node[1] - current_pos[1]) / (next_node[0] - current_pos[0])
-            next_angle = math.arctan2(next_angle)
-
-            await robot.turn_in_place(current_angle - next_angle)
-            time.sleep(.5)
-            dist = get_dist(current_pos, next_node)
-            await robot.drive_straight(distance_inches(dist), speed_mmps(200)).wait_for_completed()
-            pos = next_nodes
-        if numObstacles = cmap._obstacles :
-            #successfully reached goal
-            robot.speak("Success")
-            time.sleep(3)
-
 async def detect_cube_and_update_cmap(robot, marked, cozmo_pos):
     #updates the map with observed cubes and sets the goal if it is found
     #marked can be initialized to {}
@@ -198,28 +152,12 @@ async def detect_cube_and_update_cmap(robot, marked, cozmo_pos):
     return update_cmap, goal_center
 
 def get_global_node(angle,object_pos, Node):
-    
-
-class RobotThread(threading.Thread):
-    """Thread to run cozmo code separate from main thread
-    """
-
-    def __init__(self):
-        threading.Thread.__init__(self, daemon=True)
-
-    def run(self):
-        # Please refrain from enabling use_viewer since it uses tk, which must be in main thread
-        cozmo.run_program(CozmoPlanning,use_3d_viewer=False, use_viewer=False)
-        stopevent.set()
-
-
+    return 1
 class RRTThread(threading.Thread):
     """Thread to run RRT separate from main thread
     """
-
     def __init__(self):
         threading.Thread.__init__(self, daemon=True)
-
     def run(self):
         while not stopevent.is_set():
             RRT(cmap, cmap.get_start())

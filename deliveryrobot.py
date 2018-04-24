@@ -20,34 +20,38 @@ from position import *
 
 from grid import *
 
+from imageclassifier import *
+
 class DeliveryRobot:
 
 	def __init__(self):
+		#setup
 		self.robot = None
 		self.robotPos = None
 
-		self.grid = None
-		self.cmap = None
+		self.grid = CozGrid("map_arena.json")
+		self.cmap = CozMap("gridwithbox.json", node_generator)
 
-		self.particlefilter = None
-		self.imgClassifier = None
+		self.particlefilter = ParticleFilter(self.grid)
+		self.imgClassifier = ImageClassifier()
+		self.imgClassifier.classifer = joblib.load('classifier.pk1')
 
 	#lost state
-	def lost():
+	def lost(self):
 		print("LOST")
 		#localize
-		if(self.robotPos.confidence):
+		if(self.robotPos and self.robotPos.confidence):
 			#robot has localized
 			print("localized")
 			return "GOTOHOME"
 		else:
 			#robot is not localized
-			robot.turn_in_place(degrees(15))
-			self.robotPos.update(particlefilter.updateEasy(robot))
+			self.robot.turn_in_place(degrees(15)).wait_for_completed()
+			updateEasy(self.robot, self.particlefilter)
 			time.sleep(.75)
 			return "LOST"
 
-	def gotohome():
+	def gotohome(self):
 		current_pos = self.robotPos
 		home_pos = Position(8,8,0,1)
 
@@ -68,7 +72,7 @@ class DeliveryRobot:
 			return "LOST"
 
 
-	def survey():
+	def survey(self):
 		#robot is at home position
 		#check if the robot needs to survey
 		if(self.grid.dronemarker):
@@ -110,7 +114,7 @@ class DeliveryRobot:
 		#ect, ect, go to all positions and identify all the markers
 		return "GOTOHOME"
 
-	def sortcubes():
+	def sortcubes(self):
 		#check each corner
 
 		#count number of cubes moved
@@ -195,7 +199,7 @@ class DeliveryRobot:
 
 	# 	new_y = current_y + rel_dist*math.sin(math.radians(final_angle))
 
-	def turn_to_face(current_pos, goal_pos):
+	def turn_to_face(self, current_pos, goal_pos):
 		current_angle = current_pos[2]
 
 		relative_x = goal_pos[0] - current_pos[0]
@@ -209,32 +213,32 @@ class DeliveryRobot:
 		change_in_angle = goal_angle - current_angleu
 
 		#make robot turn that amount. probably with turn in place
-		action = self.robot.turn_in_place(degrees(change_in_angle)).wait_for_completed()
-		self.grid.updateEasy(self.robot)
+		self.robot.turn_in_place(degrees(change_in_angle)).wait_for_completed()
+		updateEasy(self.robot, self.particlefilter)
 
-	def go_to_node(current_pos, goal_pos):
+	def go_to_node(self, current_pos, goal_pos):
 		turn_to_face(current_pos, goal_pos)
 		relative_x = goal_pos[0] - current_pos[0]
 		relative_y = goal_pos[1] - current_pos[1]
 		dist = math.sqrt((relative_x)**2 + (relative_y)**2)
 		#drive straight amount = dist
 		action = self.robot.drive_straight(distance_inches(dist), speed_mmps(100)).wait_for_completed()
-		self.grid.updateEasy(self.robot)
+		updateEasy(self.robot, self.particlefilter)
 
-	def get_path_between(start_pos, goal_pos):
+	def get_path_between(self, start_pos, goal_pos):
 		cmap.add_goal(goal_pos)
 		RRT(cmap, start_pos)
 		path = cmap.get_smooth_path()
 		return path
 
-	def follow_path(path):
+	def follow_path(self, path):
 		i = 1
 		while(robotPos.confidence and i < len(path)):
 			go_to_node(robotPos, path[i])
-			self.robotPos.update(particlefilter.updateEasy(robot))
+			self.robotPos.update(updateEasy(self.robot, self.particlefilter))
 			i += 1
 
-	def identifymarker(location):
+	def identifymarker(self, location):
 		clf = self.imgClassifier
 		latest_image = self.robot.world.latest_image
 		new_image = latest_image.raw_image
@@ -247,7 +251,7 @@ class DeliveryRobot:
 
 		self.grid.add_identified_marker(label, location)
 
-	def detectcube():
+	def detectcube(self):
 		update_cmap, goal_center = detect_cube_and_update_cmap(self.robot, {}, self.robotPos)
 		if(update_cmap):
 			return True
@@ -256,24 +260,19 @@ class DeliveryRobot:
 			return False
 
 async def run(robot: cozmo.robot.Robot):
-	#setup
-	self.grid = CozGrid("map_arena.json")
-	self.particlefilter = ParticleFilter(grid)
-	self.cmap = CozMap("gridwithbox.json", node_generator)
-	self.imgClassifier = ImageClassifier()
-	self.imgClassifier.classifer = joblib.load('classifier.pk1')
-
+	delrob = DeliveryRobot()
+	delrob.robot = robot
 	state = "LOST"
 	#statemachine
 	while True:
 		if state == "LOST":
-			state = lost()
+			state = delrob.lost()
 		elif state == "GOTOHOME":
-			state = gotohome()
+			state = delrob.gotohome()
 		elif state == "SURVEY":
-			state = survey()
+			state = delrob.survey()
 		elif state == "SORTCUBES":
-			state = sortcubes()
+			state = delrob.sortcubes()
 		elif state == "SUCCESS":
 			print("SUCCESS!")
 			return "GOTOHOME"

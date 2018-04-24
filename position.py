@@ -1,5 +1,5 @@
 class Position():
-	__init__(self, x, y, h, confidence):
+	def __init__(self, x, y, h, confidence):
 		self.x = x
 		self.y = y
 		self.h = h,

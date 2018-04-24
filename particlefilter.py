@@ -1,25 +1,26 @@
+from grid import *
+from particle import Particle
+from utils import *
+from setting import *
+import numpy as np
+np.random.seed(RANDOM_SEED)
+from itertools import product
+import math
+import numpy as np
+import time
+import asyncio
+from PIL import Image
+
+import cozmo
+
+from markers import detect, annotator
+
 class ParticleFilter:
 
     def __init__(self, grid):
         self.particles = Particle.create_random(PARTICLE_COUNT, grid)
-        self.grid = grid
-
-    def updateEasy(robot):
-        odom = compute_odometry(robot.pose)
-        # Obtain the camera intrinsics matrix
-        fx, fy = robot.camera.config.focal_length.x_y
-        cx, cy = robot.camera.config.center.x_y
-        camera_settings = np.array([
-            [fx,  0, cx],
-            [ 0, fy, cy],
-            [ 0,  0,  1]
-        ], dtype=np.float)
-
-
-        markers, camera_image = await marker_processing(robot, camera_settings, show_diagnostic_image=False)
-        (m_x,m_y,m_h,confidence) = pf.update(odom, markers)
-        return (m_x, m_y, m_h, m_confident)
-
+        Map_filename = "map_arena.json"
+        self.grid = CozGrid(Map_filename)
 
     def update(self, odom, r_marker_list):
 
@@ -34,12 +35,28 @@ class ParticleFilter:
         m_x, m_y, m_h, m_confident = compute_mean_pose(self.particles)
         return (m_x, m_y, m_h, m_confident)
 
+def updateEasy(robot, filt):
+    odom = compute_odometry(robot.pose)
+    # Obtain the camera intrinsics matrix
+    # fx, fy = robot.camera.config.focal_length.x_y
+    # cx, cy = robot.camera.config.center.x_y
+    # camera_settings = np.array([
+    #     [fx,  0, cx],
+    #     [ 0, fy, cy],
+    #     [ 0,  0,  1]
+    # ], dtype=np.float)
+
+    # markers, camera_image = await marker_processing(robot, camera_settings, show_diagnostic_image=False)
+
+    (m_x,m_y,m_h,confidence) = filt.update(odom, filt.grid.markers)
+    return (m_x, m_y, m_h, m_confident)
+
 # tmp cache
 last_pose = cozmo.util.Pose(0,0,0,angle_z=cozmo.util.Angle(degrees=0))
 flag_odom_init = False
 
 
-def compute_odometry(curr_pose, cvt_inch=True):
+def compute_odometry(curr_pose, cvt_inch=False):
     '''
     Compute the odometry given the current pose of the robot (use robot.pose)
 
